@@ -2,12 +2,13 @@ import {HandProbe,type Landmark,type HandFrameMeta} from '../hand-probe';
 import type {CameraIdentity} from './model';
 export class TrackingCamera {
  stream:MediaStream|null=null;probe:HandProbe|null=null;identity:CameraIdentity|null=null;starting=false;private generation=0;private sequence=0;
+ facing:'user'|'environment'='user';
  metrics:Record<string,unknown>={};
  constructor(readonly video:HTMLVideoElement,readonly canvas:HTMLCanvasElement,private mobile:boolean,private frame:(hands:Landmark[][],meta:HandFrameMeta)=>void,private status:(message:string)=>void){}
  async start(){
  if(this.stream){this.resume();return;}if(this.starting)return;this.starting=true;const generation=++this.generation;this.status('Opening camera…');
  try{
- const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:30},...(this.mobile?{facingMode:{ideal:'environment'}}:{})}});
+ const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:640},height:{ideal:480},frameRate:{ideal:30,max:30},...(this.mobile?{facingMode:{ideal:this.facing}}:{})}});
  if(generation!==this.generation){stream.getTracks().forEach(t=>t.stop());return;}
  this.stream=stream;this.video.srcObject=stream;await this.video.play();if(generation!==this.generation)return;
  this.identity={captureId:crypto.randomUUID(),width:this.video.videoWidth,height:this.video.videoHeight};
