@@ -3,16 +3,18 @@ import {hosted,pairing,pairingStatus,clearPairing,socketUrl} from './session';
 import type {Packet} from './types';
 // @ts-ignore Shared plain-JavaScript protocol is also used by the relay.
 import {freshInput} from '../control-room.mjs';
-export const workspace=()=>location.pathname==='/maths'?'maths':location.pathname==='/art'?'art':location.pathname==='/mechanism/box'?'box':location.pathname==='/mechanism'?'stand':location.pathname.startsWith('/lab')?'lab':'shapes';
+export const workspace=()=>location.pathname==='/tracking'?'tracking':location.pathname==='/maths'?'maths':location.pathname==='/art'?'art':location.pathname==='/mechanism/box'?'box':location.pathname==='/mechanism'?'stand':location.pathname.startsWith('/lab')?'lab':'shapes';
 export class ControlClient {
  private readonly roomCode=pairing?.code;
- socket:WebSocket|null=null;connected=false;active=false;epoch=0;context=0;private seq=0;private stopped=false;private blocked=false;private latest:Record<string,unknown>;private stopLease:(()=>void)|null=null;private acquiring=false;private cancelled:AbortController|null=null;private timer?:ReturnType<typeof setTimeout>;private heartbeat?:ReturnType<typeof setInterval>;private remotePhone=false;private clockOffset:number|null=null;
+ socket:WebSocket|null=null;connected=false;active=false;epoch=0;context=0;private seq=0;private stopped=false;private blocked=false;private latest:Record<string,unknown>;private stopLease:(()=>void)|null=null;private acquiring=false;private cancelled:AbortController|null=null;private timer?:ReturnType<typeof setTimeout>;private heartbeat?:ReturnType<typeof setInterval>;private remotePhone=false;private clockOffset:number|null=null;private clockRttMs:number|null=null;
+ get clock(){return {ready:this.clockOffset!==null,rttMs:this.clockRttMs};}
+ serverTime(t=performance.now()){return this.clockOffset===null?null:t+this.clockOffset;}
  constructor(readonly role:'desktop'|'phone',private token:string,private receive:(p:Packet)=>void,initial:Record<string,unknown>={enabled:false,context:0}){this.latest=initial;this.connect();if(role==='desktop'){window.addEventListener('focus',()=>{this.blocked=false;void this.acquire();});window.addEventListener('blur',()=>this.release());document.addEventListener('visibilitychange',()=>{if(document.hidden)this.release();else void this.acquire();});window.addEventListener('pagehide',()=>this.close());}}
  private connect(){
   if(hosted&&this.role==='desktop'&&!this.connected){queueMicrotask(()=>{if(this.stopped)return;this.connected=true;this.receive({type:'connected'});void this.acquire();});}
   if(hosted&&!this.token)return;
   const roomCode=this.roomCode;const ws=this.socket=new WebSocket(socketUrl(this.token,this.role,roomCode));
-  ws.onopen=()=>{if(this.socket!==ws||this.stopped){ws.close();return;}this.seq=0;this.clockOffset=null;
+  ws.onopen=()=>{if(this.socket!==ws||this.stopped){ws.close();return;}this.seq=0;this.clockOffset=null;this.clockRttMs=null;
    if(!hosted||this.role==='phone'){this.connected=true;this.receive({type:'connected'});}
    this.network({type:'ping',t:performance.now()});
    clearInterval(this.heartbeat);this.heartbeat=setInterval(()=>this.network({type:'ping',t:performance.now()}),5000);
@@ -20,7 +22,7 @@ export class ControlClient {
   };
   ws.onmessage=e=>{
    if(this.socket!==ws)return;let p;try{p=JSON.parse(e.data);}catch{return;}if(p.v!==2)return;
-   if(p.type==='pong'&&Number.isFinite(p.serverNow)&&Number.isFinite(p.t)){const now=performance.now();if(now-p.t<1000)this.clockOffset=p.serverNow+(now-p.t)/2-now;}
+   if(p.type==='pong'&&Number.isFinite(p.serverNow)&&Number.isFinite(p.t)){const now=performance.now();if(now-p.t<1000){this.clockOffset=p.serverNow+(now-p.t)/2-now;this.clockRttMs=now-p.t;}}
    if(Number.isSafeInteger(p.epoch)&&p.epoch>=this.epoch)this.epoch=p.epoch;
    if(p.type==='status'&&this.role==='desktop'){
     this.remotePhone=!!p.phoneConnected;if(!hosted)this.active=!!p.owner;else {pairingStatus.connected=this.remotePhone;p.owner=this.active;if(pairing&&this.remotePhone&&!pairing.paired){pairing.paired=true;localStorage.setItem('spatial-pairing-v1:desktop',JSON.stringify(pairing));}window.dispatchEvent(new CustomEvent('studio-pair-status',{detail:{connected:this.remotePhone}}));}
@@ -32,7 +34,7 @@ export class ControlClient {
    this.receive(p);
   };
   ws.onclose=event=>{
-   if(this.socket!==ws)return;clearInterval(this.heartbeat);this.clockOffset=null;this.remotePhone=false;
+   if(this.socket!==ws)return;clearInterval(this.heartbeat);this.clockOffset=null;this.clockRttMs=null;this.remotePhone=false;
    if(hosted&&this.role==='desktop'){pairingStatus.connected=false;this.receive({type:'phone-lost'});this.receive({type:'status',owner:this.active,phoneConnected:false});window.dispatchEvent(new CustomEvent('studio-pair-status',{detail:{connected:false}}));}
    else{this.connected=false;this.active=false;this.release();this.receive({type:'disconnected'});}
    if(hosted&&event.code===4009){this.receive({type:'pairing-busy'});return;}

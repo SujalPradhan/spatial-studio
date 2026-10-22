@@ -1,7 +1,15 @@
 import { percentile } from './stats';
 
 export type Landmark={x:number;y:number;z:number};
+export interface HandFrameMeta {
+ frameId:number;sourceTimeMs:number;dispatchAt:number;videoTimeMs:number;timestampSource:string;
+ width:number;height:number;inferenceMs:number;
+}
 export class HandProbe {
+  private frameId=0;
+  private frameMeta:HandFrameMeta|null=null;
+  private videoCallback:number|null=null;
+  private presented:{time:number;mediaTime:number}|null=null;
   private worker:Worker|null=null;
   private timer?:ReturnType<typeof setTimeout>;
   private stopped=false;
@@ -15,9 +23,13 @@ export class HandProbe {
   private detectedFrames=0;
   private maxHands=0;
   private readyTimer?:ReturnType<typeof setTimeout>;
-  constructor(private video:HTMLVideoElement,private canvas:HTMLCanvasElement,private report:(data:Record<string,unknown>,message:string)=>void,private onFrame?:(hands:Landmark[][],capturedAt:number,worldHands:Landmark[][])=>void){}
+  constructor(private video:HTMLVideoElement,private canvas:HTMLCanvasElement,private report:(data:Record<string,unknown>,message:string)=>void,private onFrame?:(hands:Landmark[][],capturedAt:number,worldHands:Landmark[][],meta?:HandFrameMeta)=>void){}
   start(){
     this.modelStarted=performance.now();
+    if(this.video.requestVideoFrameCallback){
+      const presented=(_now:number,meta:VideoFrameCallbackMetadata)=>{if(this.stopped)return;this.presented={time:meta.presentationTime,mediaTime:meta.mediaTime};this.videoCallback=this.video.requestVideoFrameCallback(presented);};
+      this.videoCallback=this.video.requestVideoFrameCallback(presented);
+    }
     this.worker=new Worker('/hand-worker.js');
     this.readyTimer=setTimeout(()=>this.fail('Hand model did not initialize within 30 seconds.'),30000);
     this.worker.onerror=e=>this.fail(e.message);
@@ -29,7 +41,7 @@ export class HandProbe {
         this.frames++;this.samples.push(data.inferenceMs);if(this.samples.length>300)this.samples.shift();
         this.workerSamples.push(performance.now()-data.timestamp);if(this.workerSamples.length>300)this.workerSamples.shift();
         const hands=data.landmarks as Landmark[][];
-        this.onFrame?.(hands,data.timestamp,data.worldLandmarks??[]);
+        this.onFrame?.(hands,data.timestamp,data.worldLandmarks??[],this.frameMeta?{...this.frameMeta,inferenceMs:data.inferenceMs}:undefined);
         if(hands.length)this.detectedFrames++;this.maxHands=Math.max(this.maxHands,hands.length);
         const rate=this.frames/Math.max(.001,(performance.now()-this.started)/1000);
         this.draw(hands);
@@ -46,9 +58,13 @@ export class HandProbe {
     if(this.video.readyState<2||this.video.currentTime===this.lastVideoTime){this.timer=setTimeout(()=>void this.next(),30);return;}
     this.lastVideoTime=this.video.currentTime;
     try{
+      const bitmapStarted=performance.now(),videoTimeMs=this.video.currentTime*1000;
+      const presentation=this.presented&&Math.abs(this.presented.mediaTime*1000-videoTimeMs)<1?this.presented:null;
       const bitmap=await createImageBitmap(this.video);
       if(this.stopped){bitmap.close();return;}
-      this.worker?.postMessage({type:'frame',bitmap,timestamp:performance.now()},[bitmap]);
+      const dispatchAt=performance.now();
+      this.frameMeta={frameId:++this.frameId,sourceTimeMs:presentation?.time??bitmapStarted,dispatchAt,videoTimeMs,timestampSource:presentation?'video-presentation-estimate':'bitmap-start-estimate',width:bitmap.width,height:bitmap.height,inferenceMs:0};
+      this.worker?.postMessage({type:'frame',bitmap,timestamp:dispatchAt},[bitmap]);
     }catch(e){this.fail(String(e));}
   }
   private draw(hands:Landmark[][]){
@@ -58,7 +74,7 @@ export class HandProbe {
   }
   private fail(message:string){this.stop();this.report({status:'error',reason:message},`Hand tracking: ${message}`);window.dispatchEvent(new CustomEvent('studio-hand-metrics',{detail:{status:'error',reason:message}}));}
   stop(){
-    this.stopped=true;clearTimeout(this.timer);clearTimeout(this.readyTimer);this.worker?.terminate();this.worker=null;
+    this.stopped=true;if(this.videoCallback!==null)this.video.cancelVideoFrameCallback?.(this.videoCallback);this.videoCallback=null;clearTimeout(this.timer);clearTimeout(this.readyTimer);this.worker?.terminate();this.worker=null;
     this.canvas.getContext('2d')?.clearRect(0,0,this.canvas.width,this.canvas.height);
     window.dispatchEvent(new CustomEvent('studio-hand-metrics',{detail:{status:'off'}}));
   }

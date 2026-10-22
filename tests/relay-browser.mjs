@@ -11,7 +11,7 @@ const checks=[];
 try{
  const a=await desktop(),b=await desktop();assert.notEqual(a.code,b.code);
  const pa=await phone(a.code),pb=await phone(b.code);await title(pa.page,'Cone');await title(pb.page,'Cone');
- await a.page.waitForFunction(()=>window.testRelayClockReady);await pa.page.locator('#start').click();await pa.page.waitForFunction(()=>!document.querySelector('#clutch').disabled);await a.page.waitForFunction(()=>window.__sectionStudio.phone.rate>0);
+ await a.page.waitForFunction(()=>window.testRelayClockReady);await pa.page.locator('#start').click();await pa.page.waitForFunction(()=>!document.querySelector('#clutch').disabled);await a.page.waitForFunction(()=>window.__sectionStudio.phone.rate>0&&document.querySelector('#phone-label')?.textContent==='Phone ready');
  const pad=await pa.page.locator('#clutch').boundingBox();await pa.page.mouse.move(pad.x+pad.width*.5,pad.y+pad.height*.5);await pa.page.mouse.down();await a.page.waitForFunction(()=>window.__sectionStudio.phone.held);await pa.page.evaluate(()=>window.testDegrees=25);
  await a.page.waitForFunction(()=>Math.abs(window.__sectionStudio.state.plane[0])>.1);assert.deepEqual(await b.page.evaluate(()=>window.__sectionStudio.state.plane),[0,0,0,1]);
  await pa.page.mouse.up();await a.page.waitForFunction(()=>!window.__sectionStudio.phone.held);const angle=await a.page.evaluate(()=>window.__sectionStudio.state.plane);await pa.page.evaluate(()=>window.testDegrees=60);await pa.page.waitForTimeout(300);assert.deepEqual(await a.page.evaluate(()=>window.__sectionStudio.state.plane),angle);

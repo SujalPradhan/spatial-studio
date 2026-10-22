@@ -1,4 +1,5 @@
-const workspaces=new Set(['shapes','stand','box','art','lab','maths']);
+import {validTrackingFrame,validTrackingPhoto,validCaptureId} from './tracking-protocol.mjs';
+const workspaces=new Set(['shapes','stand','box','art','lab','maths','tracking']);
 const finiteQ=q=>Array.isArray(q)&&q.length===4&&q.every(Number.isFinite)&&Math.abs(Math.hypot(...q)-1)<.1;
 const between=(n,a,b)=>Number.isFinite(n)&&n>=a&&n<=b;
 // Apply at relay ingress AND desktop receipt. Ink has reliable checkpoints and
@@ -11,6 +12,7 @@ export function freshInput(packet,now){
 }
 function descriptor(workspace,state){
  if(!state||typeof state.enabled!=='boolean'||typeof state.frozen!=='boolean'||!Number.isSafeInteger(state.context)||state.context<0)return null;
+ if(workspace==='tracking'&&(typeof state.captureEnabled!=='boolean'||!validCaptureId(state.trackingSession)))return null;
  const s={...state};for(const key of ['type','workspace','documentId','epoch','v','seq'])delete s[key];
  if(workspace==='shapes'&&(!['cone','cylinder','cube'].includes(s.solid)||!between(s.depth,-1.8,1.8)))return null;
  if(workspace==='stand'&&(s.fixture!=='folding-stand-v1'||s.selected!=='backrest'||!between(s.angle,0,80)||s.limit!==80))return null;
@@ -21,11 +23,11 @@ function descriptor(workspace,state){
 }
 // Shared protocol; works with Node and Cloudflare WebSocket implementations.
 export function createControlRoom({initialEpoch=0,requireFresh=false}={}){
- const peers=new Map();let owner=null,phone=null,epoch=initialEpoch,acked=false;
+ const peers=new Map();let owner=null,phone=null,epoch=initialEpoch,acked=false,pendingPhoto=null;
  const send=(ws,p)=>{if(ws?.readyState===1&&(ws.bufferedAmount??0)<256*1024)ws.send(JSON.stringify({v:2,epoch,...p}));};
  const status=()=>{for(const [ws,p] of peers)send(ws,{type:'status',owner:owner===ws,claimed:!!owner,phoneConnected:!!phone,workspace:owner?peers.get(owner)?.workspace:null});};
  const pushState=()=>{if(owner&&phone){const p=peers.get(owner);send(phone,{type:'state',workspace:p.workspace,documentId:p.documentId,...p.state});}};
- const release=ws=>{if(owner!==ws)return;owner=null;acked=false;epoch++;send(phone,{type:'waiting'});status();};
+ const release=ws=>{if(owner!==ws)return;owner=null;acked=false;pendingPhoto=null;epoch++;send(phone,{type:'waiting'});status();};
  function connect(ws,role){
   if(!['desktop','phone'].includes(role)||role==='phone'&&phone){ws.close(4009,'A phone is already connected');return false;}
   peers.set(ws,{role,seq:-1,focused:false,workspace:null,state:null});if(role==='phone'){phone=ws;acked=false;pushState();}status();
@@ -34,13 +36,14 @@ export function createControlRoom({initialEpoch=0,requireFresh=false}={}){
    if(role==='desktop'){
     if(p.type==='activate'){
      if(!workspaces.has(p.workspace)||typeof p.documentId!=='string'||p.documentId.length>120||!p.state||JSON.stringify(p.state).length>16000||p.focused!==true||p.visible!==true)return;
-     const valid=descriptor(p.workspace,p.state);if(!valid)return;const previous=owner;if(previous!==ws){send(previous,{type:'lost'});epoch++;acked=false;}owner=ws;Object.assign(peer,{focused:true,workspace:p.workspace,documentId:p.documentId,state:valid});status();pushState();return;
+     const valid=descriptor(p.workspace,p.state);if(!valid)return;const previous=owner;if(previous!==ws){send(previous,{type:'lost'});epoch++;acked=false;pendingPhoto=null;}owner=ws;Object.assign(peer,{focused:true,workspace:p.workspace,documentId:p.documentId,state:valid});status();pushState();return;
     }
     if(owner!==ws||p.epoch!==epoch)return;
     if(p.type==='release'){release(ws);return;}
-    if(p.type==='state'&&p.state&&JSON.stringify(p.state).length<16000){const valid=descriptor(peer.workspace,p.state);if(!valid)return;const oldContext=peer.state?.context;peer.state=valid;if(oldContext!==p.state.context)acked=false;pushState();return;}
+    if(p.type==='state'&&p.state&&JSON.stringify(p.state).length<16000){const valid=descriptor(peer.workspace,p.state);if(!valid)return;const oldContext=peer.state?.context;peer.state=valid;if(oldContext!==p.state.context){acked=false;pendingPhoto=null;}if(!valid.captureEnabled)pendingPhoto=null;pushState();return;}
     if(p.type==='ink-rejected'&&p.documentId===peer.documentId&&typeof p.strokeId==='string')send(phone,{type:'ink-rejected',documentId:p.documentId,strokeId:p.strokeId,index:p.index,reason:String(p.reason).slice(0,120)});
     if(p.type==='checkpoint'&&p.documentId===peer.documentId&&typeof p.strokeId==='string'&&Number.isSafeInteger(p.index))send(phone,{type:'checkpoint',documentId:p.documentId,strokeId:p.strokeId,index:p.index,finished:!!p.finished});
+    if(p.type==='tracking-capture'&&peer.workspace==='tracking'&&peer.state.captureEnabled&&acked&&p.context===peer.state.context&&validCaptureId(p.requestId)&&(!pendingPhoto||pendingPhoto.expires<Date.now())){pendingPhoto={id:p.requestId,expires:Date.now()+10000};send(phone,{type:'tracking-capture',requestId:p.requestId,context:peer.state.context});}
     if(p.type==='cue')send(phone,{type:'cue',cue:p.cue,id:p.id,at:Date.now()});
     return;
    }
@@ -48,6 +51,14 @@ export function createControlRoom({initialEpoch=0,requireFresh=false}={}){
    if(p.type==='ack'){if(p.context===target.state.context&&p.documentId===target.documentId){acked=true;send(owner,{type:'phone-ready'});}return;}
    if(!acked||p.context!==target.state.context)return;
    if(requireFresh&&['frame','action'].includes(p.type)){p=freshInput(p,Date.now());if(!p)return;}
+   if(p.type==='tracking-frame'){
+    if(target.workspace!=='tracking'||!target.state.captureEnabled||!validTrackingFrame(p)||!Number.isFinite(p.at)||Date.now()-p.at>1500||p.at-Date.now()>100)return;
+    send(owner,{type:'tracking-frame',captureId:p.captureId,width:p.width,height:p.height,frameId:p.frameId,hands:p.hands,frameAt:p.frameAt,dispatchAt:p.dispatchAt,videoTimeMs:p.videoTimeMs,timestampSource:p.timestampSource,clockRttMs:p.clockRttMs,inferenceMs:p.inferenceMs,processedHz:p.processedHz,at:p.at,context:p.context});return;
+   }
+   if(p.type==='tracking-photo'){
+    if(target.workspace==='tracking'&&target.state.captureEnabled&&pendingPhoto?.id===p.requestId&&pendingPhoto.expires>Date.now()&&validTrackingPhoto(p)){pendingPhoto=null;send(owner,{type:'tracking-photo',requestId:p.requestId,jpeg:p.jpeg,captureId:p.captureId,width:p.width,height:p.height,context:p.context});}return;
+   }
+   if(p.type==='tracking-stop'&&target.workspace==='tracking'){pendingPhoto=null;send(owner,{type:'tracking-stop',context:p.context});return;}
    if(p.type==='frame'){
     if(typeof p.hold!=='boolean'||typeof p.active!=='boolean'||typeof p.visible!=='boolean'||!Number.isFinite(p.screenAngle)||typeof p.source!=='string'||p.source.length>120||p.hold&&!finiteQ(p.q))return;
     send(owner,{...p,epoch,seq:undefined,received:Date.now()});return;
@@ -62,7 +73,7 @@ export function createControlRoom({initialEpoch=0,requireFresh=false}={}){
    }
    if(['telemetry','test','capability'].includes(p.type))send(owner,{...p,epoch,received:Date.now()});
   });
-  ws.addEventListener('close',()=>{if(ws===phone){phone=null;acked=false;send(owner,{type:'phone-lost'});}release(ws);peers.delete(ws);status();});
+  ws.addEventListener('close',()=>{if(ws===phone){phone=null;acked=false;pendingPhoto=null;send(owner,{type:'phone-lost'});}release(ws);peers.delete(ws);status();});
   return true;
  }
  return {connect,get status(){return {phoneConnected:!!phone,clients:peers.size,workspace:peers.get(owner)?.workspace??null,epoch};},close(code=1001,reason='Room closed'){for(const ws of peers.keys())ws.close(code,reason);}};

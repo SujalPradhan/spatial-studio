@@ -5,3 +5,5 @@ reports/
 .wrangler/
 .dev.vars*
 .env*.local
+.venv-tracking/
+__pycache__/
