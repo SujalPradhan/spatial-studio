@@ -14,7 +14,7 @@ try{
  await pa.page.locator('#start').click();await pa.page.waitForFunction(()=>!document.querySelector('#clutch').disabled);
  const pad=await pa.page.locator('#clutch').boundingBox();await pa.page.mouse.move(pad.x+pad.width*.5,pad.y+pad.height*.5);await pa.page.mouse.down();await pa.page.waitForTimeout(100);await pa.page.evaluate(()=>window.testDegrees=25);
  await a.page.waitForFunction(()=>Math.abs(window.__sectionStudio.state.plane[0])>.1);assert.deepEqual(await b.page.evaluate(()=>window.__sectionStudio.state.plane),[0,0,0,1]);
- await pa.page.mouse.up();const angle=await a.page.evaluate(()=>window.__sectionStudio.state.plane);await pa.page.evaluate(()=>window.testDegrees=60);await pa.page.waitForTimeout(300);assert.deepEqual(await a.page.evaluate(()=>window.__sectionStudio.state.plane),angle);
+ await pa.page.mouse.up();await a.page.waitForFunction(()=>!window.__sectionStudio.phone.held);const angle=await a.page.evaluate(()=>window.__sectionStudio.state.plane);await pa.page.evaluate(()=>window.testDegrees=60);await pa.page.waitForTimeout(300);assert.deepEqual(await a.page.evaluate(()=>window.__sectionStudio.state.plane),angle);
  checks.push('Two typed codes pair isolated laptop/phone sessions; tilt moves only the intended scene; release holds pose');
  await a.page.locator('[data-solid="cylinder"]').click();await title(pa.page,'Cylinder');await pa.page.locator('#fine').fill('0.4');await a.page.waitForFunction(()=>Math.abs(window.__sectionStudio.state.depth-.4)<.001);
  await a.page.locator('.workspace-nav a[href="/mechanism"]').click();await title(pa.page,'Folding stand');await pa.page.locator('#fine').fill('45');await a.page.waitForFunction(()=>window.__standStudio.state.angle===45);
