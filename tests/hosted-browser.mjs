@@ -16,8 +16,9 @@ const checks=[];
 try{
  await page.goto(base+'/cone');
  await page.locator('.hosted-preview').waitFor();
+ const phoneAvailable=await page.locator('#pair-phone').count()>0;
  assert.equal(await page.locator('#connect-help').isVisible(),false);
- assert.equal(await page.locator('[data-mode="phone"]').isVisible(),false);
+ assert.equal(await page.locator('[data-mode="phone"]').isVisible(),phoneAvailable);
  await page.locator('#camera-shortcut').click();
  await page.waitForFunction(()=>window.__sectionStudio?.hands.status==='running',null,{timeout:60000});
  const stats=await page.evaluate(()=>window.__sectionStudio.hands);
@@ -69,8 +70,10 @@ try{
  checks.push('Maths narrated demo plays and pauses without a relay');
  await page.goto(base+'/mechanism/box');await page.locator('.hosted-preview').waitFor();
  assert.equal(await page.locator('#camera-toggle').isEnabled(),true);
- for(const route of ['/phone','/lab']){await page.goto(base+route);await page.waitForSelector('a[href="/cone"]');assert.ok((await page.locator('#app').innerText()).includes('local build'));}
- checks.push('Box route loads; phone and lab routes explain local availability');
+ await page.goto(base+'/phone');
+ if(phoneAvailable)await page.locator('#pair-code').waitFor();else{await page.waitForSelector('a[href="/cone"]');assert.ok((await page.locator('#app').innerText()).includes('local build'));}
+ await page.goto(base+'/lab');await page.waitForSelector('a[href="/cone"]');assert.ok((await page.locator('#app').innerText()).includes('local build'));
+ checks.push('Box route loads; phone entry reflects deployment capabilities; lab remains local');
  assert.deepEqual(backend,[]);assert.deepEqual(sockets,[]);assert.deepEqual(errors,[]);
  checks.push('No API calls, WebSockets or page errors in hosted mode');
  await mkdir('reports',{recursive:true});await writeFile('reports/hosted-check.json',JSON.stringify({passed:true,checks,syntheticVideoTimings:stats,note:'Synthetic camera confirms execution, not human gesture accuracy or physical motion-to-display latency.'},null,2));

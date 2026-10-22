@@ -1,14 +1,61 @@
 import {currentDocument,showStorageError} from './documents';
-import {webcamOnly} from './session';
+import {hosted,pairing,pairingStatus,clearPairing,socketUrl} from './session';
 import type {Packet} from './types';
+// @ts-ignore Shared plain-JavaScript protocol is also used by the relay.
+import {freshInput} from '../control-room.mjs';
 export const workspace=()=>location.pathname==='/maths'?'maths':location.pathname==='/art'?'art':location.pathname==='/mechanism/box'?'box':location.pathname==='/mechanism'?'stand':location.pathname.startsWith('/lab')?'lab':'shapes';
 export class ControlClient {
- socket:WebSocket|null=null;connected=false;active=false;epoch=0;context=0;private seq=0;private stopped=false;private blocked=false;private latest:Record<string,unknown>;private stopLease:(()=>void)|null=null;private acquiring=false;private cancelled:AbortController|null=null;private timer?:ReturnType<typeof setTimeout>;
+ private readonly roomCode=pairing?.code;
+ socket:WebSocket|null=null;connected=false;active=false;epoch=0;context=0;private seq=0;private stopped=false;private blocked=false;private latest:Record<string,unknown>;private stopLease:(()=>void)|null=null;private acquiring=false;private cancelled:AbortController|null=null;private timer?:ReturnType<typeof setTimeout>;private heartbeat?:ReturnType<typeof setInterval>;private remotePhone=false;private clockOffset:number|null=null;
  constructor(readonly role:'desktop'|'phone',private token:string,private receive:(p:Packet)=>void,initial:Record<string,unknown>={enabled:false,context:0}){this.latest=initial;this.connect();if(role==='desktop'){window.addEventListener('focus',()=>{this.blocked=false;void this.acquire();});window.addEventListener('blur',()=>this.release());document.addEventListener('visibilitychange',()=>{if(document.hidden)this.release();else void this.acquire();});window.addEventListener('pagehide',()=>this.close());}}
- private connect(){if(webcamOnly){if(this.role==='desktop')queueMicrotask(()=>{if(this.stopped)return;this.connected=true;this.receive({type:'connected'});void this.acquire();});return;}const ws=this.socket=new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/control-stream?session=${this.token}&role=${this.role}`);ws.onopen=()=>{this.connected=true;this.seq=0;this.receive({type:'connected'});if(this.role==='desktop')void this.acquire();};ws.onmessage=e=>{const p=JSON.parse(e.data);if(p.v!==2)return;if(Number.isSafeInteger(p.epoch)&&p.epoch>=this.epoch)this.epoch=p.epoch;if(p.type==='status'&&this.role==='desktop')this.active=!!p.owner;if(p.type==='lost'){this.blocked=true;this.active=false;this.release();}if(p.type==='state'&&this.role==='phone')this.context=Number(p.context??0);if(this.role==='desktop'&&['frame','action','ink'].includes(p.type)&&(!this.active||document.hidden||!document.hasFocus()))return;this.receive(p);};ws.onclose=()=>{this.connected=false;this.active=false;this.release();this.receive({type:'disconnected'});if(!this.stopped)this.timer=setTimeout(()=>this.connect(),1200);};ws.onerror=()=>ws.close();}
+ private connect(){
+  if(hosted&&this.role==='desktop'&&!this.connected){queueMicrotask(()=>{if(this.stopped)return;this.connected=true;this.receive({type:'connected'});void this.acquire();});}
+  if(hosted&&!this.token)return;
+  const roomCode=this.roomCode;const ws=this.socket=new WebSocket(socketUrl(this.token,this.role,roomCode));
+  ws.onopen=()=>{if(this.socket!==ws||this.stopped){ws.close();return;}this.seq=0;this.clockOffset=null;
+   if(!hosted||this.role==='phone'){this.connected=true;this.receive({type:'connected'});}
+   this.network({type:'ping',t:performance.now()});
+   clearInterval(this.heartbeat);this.heartbeat=setInterval(()=>this.network({type:'ping',t:performance.now()}),5000);
+   if(this.role==='desktop'){if(hosted&&this.active)this.network({type:'activate',workspace:workspace(),documentId:currentDocument?.id??workspace(),state:this.latest,focused:true,visible:true});else void this.acquire();}
+  };
+  ws.onmessage=e=>{
+   if(this.socket!==ws)return;let p;try{p=JSON.parse(e.data);}catch{return;}if(p.v!==2)return;
+   if(p.type==='pong'&&Number.isFinite(p.serverNow)&&Number.isFinite(p.t)){const now=performance.now();if(now-p.t<1000)this.clockOffset=p.serverNow+(now-p.t)/2-now;}
+   if(Number.isSafeInteger(p.epoch)&&p.epoch>=this.epoch)this.epoch=p.epoch;
+   if(p.type==='status'&&this.role==='desktop'){
+    this.remotePhone=!!p.phoneConnected;if(!hosted)this.active=!!p.owner;else {pairingStatus.connected=this.remotePhone;p.owner=this.active;if(pairing&&this.remotePhone&&!pairing.paired){pairing.paired=true;localStorage.setItem('spatial-pairing-v1:desktop',JSON.stringify(pairing));}window.dispatchEvent(new CustomEvent('studio-pair-status',{detail:{connected:this.remotePhone}}));}
+   }
+   if(p.type==='lost'){this.blocked=true;this.active=false;this.release();}
+   if(p.type==='state'&&this.role==='phone')this.context=Number(p.context??0);
+   if(this.role==='desktop'&&['frame','action','ink'].includes(p.type)&&(!this.active||document.hidden||!document.hasFocus()))return;
+   if(hosted&&this.role==='desktop'&&['frame','action'].includes(p.type)){p=freshInput(p,this.clockOffset===null?NaN:performance.now()+this.clockOffset);if(!p)return;}
+   this.receive(p);
+  };
+  ws.onclose=event=>{
+   if(this.socket!==ws)return;clearInterval(this.heartbeat);this.clockOffset=null;this.remotePhone=false;
+   if(hosted&&this.role==='desktop'){pairingStatus.connected=false;this.receive({type:'phone-lost'});this.receive({type:'status',owner:this.active,phoneConnected:false});window.dispatchEvent(new CustomEvent('studio-pair-status',{detail:{connected:false}}));}
+   else{this.connected=false;this.active=false;this.release();this.receive({type:'disconnected'});}
+   if(hosted&&event.code===4009){this.receive({type:'pairing-busy'});return;}
+   if(hosted&&event.code===4001){clearPairing(roomCode);this.receive({type:'pairing-expired',reason:event.reason});window.dispatchEvent(new Event('studio-pairing-expired'));return;}
+   if(!this.stopped)this.timer=setTimeout(()=>this.connect(),1200);
+  };
+  ws.onerror=()=>ws.close();
+ }
  private async acquire(){if(this.role!=='desktop'||!this.connected||this.acquiring||this.stopLease||document.hidden||!document.hasFocus())return;this.acquiring=true;const abort=this.cancelled=new AbortController();const run=async()=>{if(abort.signal.aborted||document.hidden||!document.hasFocus())return;try{await currentDocument?.restoreLatest();}catch(e){showStorageError(String(e));return;}if(abort.signal.aborted||document.hidden||!document.hasFocus())return;currentDocument&&(currentDocument.writable=true);this.raw({type:'activate',workspace:workspace(),documentId:currentDocument?.id??workspace(),state:this.latest,focused:true,visible:true});await new Promise<void>(resolve=>{this.stopLease=resolve;});this.stopLease=null;currentDocument&&(currentDocument.writable=false);const epoch=this.epoch;await currentDocument?.flush().catch(()=>{});this.raw({type:'release',epoch});};try{if(navigator.locks)await navigator.locks.request('spatial-studio-controller',{signal:abort.signal},run);else await run();}catch(e){if(!abort.signal.aborted)showStorageError(String(e));}finally{this.acquiring=false;if(!this.blocked&&!this.stopped&&this.connected&&!document.hidden&&document.hasFocus())setTimeout(()=>void this.acquire(),50);}}
  release(){this.active=false;this.cancelled?.abort();this.stopLease?.();this.receive({type:'local-release'});}
- private raw(p:Packet){if(webcamOnly){if(p.type==='activate'){this.active=true;this.receive({type:'status',owner:true,claimed:true,phoneConnected:false,workspace:workspace()});return true;}if(p.type==='release'){this.active=false;this.receive({type:'status',owner:false,claimed:false,phoneConnected:false});return true;}return false;}if(this.socket?.readyState===WebSocket.OPEN&&this.socket.bufferedAmount<128*1024){this.socket.send(JSON.stringify({v:2,seq:this.seq++,epoch:this.epoch,context:this.context,...p}));return true;}return false;}
+ private network(p:Packet){
+  const ws=this.socket;if(ws?.readyState!==WebSocket.OPEN)return false;
+  if(ws.bufferedAmount>16*1024){ws.close(1013,'Connection catching up');return false;}
+  if(hosted&&p.type==='frame'&&p.hold&&this.clockOffset===null)return false;
+  ws.send(JSON.stringify({v:2,seq:this.seq++,epoch:this.epoch,context:this.context,...p,...this.clockOffset===null?{}:{at:performance.now()+this.clockOffset}}));return true;
+ }
+ private raw(p:Packet){
+  if(hosted&&this.role==='desktop'){
+   if(p.type==='activate'){this.active=true;this.receive({type:'status',owner:true,claimed:true,phoneConnected:this.remotePhone,workspace:workspace()});this.network(p);return true;}
+   if(p.type==='release'){this.active=false;this.receive({type:'status',owner:false,claimed:false,phoneConnected:this.remotePhone});this.network(p);return true;}
+  }
+  return this.network(p);
+ }
  send(p:Packet){if(this.role==='desktop'&&(p.type==='state'||p.type==='controller-state')){const {type,...state}=p;this.latest={...state,context:Number(p.context??0)};this.context=Number(p.context??0);if(this.active)this.raw({type:'state',state:this.latest});return true;}if(this.role==='desktop'&&p.type==='claim'){void this.acquire();return true;}if(this.role==='desktop'&&p.type==='release'){this.release();return true;}if(this.role==='desktop'&&(!this.active||document.hidden||!document.hasFocus()))return false;return this.raw(p);}
- close(){this.stopped=true;clearTimeout(this.timer);this.release();this.socket?.close();}
+ close(){this.stopped=true;clearTimeout(this.timer);clearInterval(this.heartbeat);this.release();this.socket?.close();}
 }

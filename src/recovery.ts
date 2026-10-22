@@ -1,4 +1,4 @@
 let db:Promise<IDBDatabase>|null=null;
 function database(){return db??=new Promise((resolve,reject)=>{const r=indexedDB.open('studio-phone-recovery',1);r.onupgradeneeded=()=>r.result.createObjectStore('data');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
-export async function readRecovery():Promise<unknown>{const d=await database();return new Promise((resolve,reject)=>{const r=d.transaction('data').objectStore('data').get('pending');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
-export async function writeRecovery(value:unknown){const d=await database();return new Promise<void>((resolve,reject)=>{const t=d.transaction('data','readwrite');t.objectStore('data').put(value,'pending');t.oncomplete=()=>resolve();t.onabort=()=>reject(t.error);});}
+export async function readRecovery(scope='pending'):Promise<unknown>{const d=await database();return new Promise((resolve,reject)=>{const r=d.transaction('data').objectStore('data').get(scope);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+export async function writeRecovery(value:unknown,scope='pending'){const d=await database();return new Promise<void>((resolve,reject)=>{const t=d.transaction('data','readwrite');t.objectStore('data').put(value,scope);t.oncomplete=()=>resolve();t.onabort=()=>reject(t.error);});}

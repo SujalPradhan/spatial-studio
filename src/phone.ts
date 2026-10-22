@@ -1,4 +1,4 @@
-import {getSession} from './session';
+import {getSession,hosted,pairing,clearPairing} from './session';
 import './phone.css';
 import {SensorHub} from './sensors';
 import {ControlClient} from './control';
@@ -8,25 +8,29 @@ import type {InkFrame} from './art/model';
 import type {Packet,Quat} from './types';
 const $=<T extends HTMLElement=HTMLElement>(s:string)=>document.querySelector<T>(s)!;
 const session=await getSession();
-if(new URLSearchParams(location.search).get('session')!==session.token){$('#app').textContent='Reconnect with npm run phone on the computer.';throw Error('Expired session');}
+if(!hosted&&new URLSearchParams(location.search).get('session')!==session.token){$('#app').textContent='Reconnect with npm run phone on the computer.';throw Error('Expired session');}
 $('#app').innerHTML=`<main class="controller"><header><span>3D STUDIO</span><span id="connection">Connecting</span></header><h1 id="workspace-title">Waiting for studio</h1><p id="message">Choose a workspace on your computer.</p><button id="start">Start sensors</button><p id="rate">Sensors stopped</p>
 <section id="motion-panel" hidden><button id="clutch" class="pad" disabled><strong id="pad-label">Hold to tilt</strong><span>Release to stop</span></button><div id="box-parts"><button data-part="lid">Lid</button><button data-part="tray">Tray</button></div><label><span id="fine-label">Cut height</span><output id="fine-value"></output></label><input id="fine" type="range" min="-1.8" max="1.8" step=".01" value="0"><div class="button-row" id="stand-presets"><button data-angle="0">Fold flat</button><button data-angle="65">Reading · 65°</button><button id="pose-save">Save pose</button></div><div id="box-recording"><div class="button-row"><button data-action="record">Record</button><button data-action="stop">Stop</button><button data-action="play">Play</button><button data-action="marker">Marker</button></div><input id="timeline" type="range" min="0" max="1" step="1" value="0" aria-label="Timeline"><label>Opening limit <input id="limit" type="number" min="0" max="120" value="120"></label><button id="set-limit">Set limit</button></div></section>
 <section id="maths-panel" hidden><div class="button-row"><button data-action="math-rotate">Tilt plane</button><button data-action="math-annotate">Annotate</button></div><div class="button-row"><button data-action="math-residuals">Lost components</button><button data-action="math-reveal" id="maths-reveal">Reveal PCA</button></div><div class="button-row"><button data-action="math-next">Next example</button><button data-action="math-clear">Clear ink</button></div></section>
 <section id="art-panel" hidden><div class="button-row"><button data-mode="draw">Draw</button><button data-mode="position">Position</button></div><canvas id="drawing-pad" class="drawing-pad" width="700" height="700" aria-label="Touch drawing pad"></canvas><div class="button-row"><button id="recenter">Recenter</button><button id="pin">Pin plane</button></div><label>Depth <output id="depth-value">0</output></label><input id="art-depth" type="range" min="-3" max="3" step=".01" value="0"><div class="brush-row"><label>Colour <input id="color" type="color" value="#457b64"></label><label>Width <input id="width" type="range" min=".005" max=".1" step=".005" value=".025"></label></div><select id="brush"><option value="stable">Stable ink</option><option value="twist">Twist ribbon · experimental</option></select><button id="recover" hidden>Recover unfinished stroke</button></section>
 <div class="button-row"><button data-action="undo" id="undo">Undo</button><button data-action="redo" id="redo">Redo</button><button id="freeze">Freeze</button></div><details><summary>Options</summary><label><input id="invert" type="checkbox"> Invert joint tilt</label><a id="hardware-link" href="#">Hardware measurements</a></details></main>`;
 $('#hardware-link').setAttribute('href','/phone/lab?session='+session.token);
+if(hosted){$('#hardware-link').hidden=true;const change=document.createElement('button');change.className='change-connection';change.textContent='Change connection';change.onclick=()=>{release();hub.stop();clearPairing();location.replace('/phone');};document.querySelector('.controller header')!.append(change);}
 const hub=new SensorHub(),orientations=new OrientationBuffer();let state:Packet|null=null,scope='',ackScope='',hold=false,fine=false,selectedPointer:number|null=null,notice='',wake:{release():Promise<void>}|null=null;
+const recoveryScope=hosted?'pending:'+pairing!.code:'pending';
 const contacts=new Set<number>();type Sample=[number,number,number,number,number,number,number];
 interface Pending {id:string;documentId:string;epoch:number;context:number;frame:InkFrame;points:Sample[];base:number;finished:boolean;interrupted:boolean;recover:boolean;mode:string}
 let current:Pending|null=null;const pending=new Map<string,Pending>();
-try{const saved=await readRecovery();if(Array.isArray(saved))for(const item of saved.slice(0,8))if(item&&typeof item.id==='string'&&typeof item.documentId==='string'&&validFrame(item.frame)&&Array.isArray(item.points)&&item.points.length<=512&&item.points.every((p:unknown)=>Array.isArray(p)&&p.length===7&&p.every(Number.isFinite))){pending.set(item.id,{...item,recover:true,finished:true,interrupted:true});}}catch{}
-let recoverySignature='';setInterval(()=>{const values=[...pending.values()],signature=JSON.stringify(values);if(signature!==recoverySignature){recoverySignature=signature;void writeRecovery(values).catch(()=>{$('#message').textContent='Recovery storage unavailable. Keep this phone page open until the stroke saves.';});}},400);
+try{const saved=await readRecovery(recoveryScope);if(Array.isArray(saved))for(const item of saved.slice(0,8))if(item&&typeof item.id==='string'&&typeof item.documentId==='string'&&validFrame(item.frame)&&Array.isArray(item.points)&&item.points.length<=512&&item.points.every((p:unknown)=>Array.isArray(p)&&p.length===7&&p.every(Number.isFinite))){pending.set(item.id,{...item,recover:true,finished:true,interrupted:true});}}catch{}
+let recoverySignature='';setInterval(()=>{const values=[...pending.values()],signature=JSON.stringify(values);if(signature!==recoverySignature){recoverySignature=signature;void writeRecovery(values,recoveryScope).catch(()=>{$('#message').textContent='Recovery storage unavailable. Keep this phone page open until the stroke saves.';});}},400);
 const client=new ControlClient('phone',session.token,receive);
 function enabled(){return !!state?.enabled&&!state?.frozen&&ackScope===scope;}
 function action(action:string,value?:number){if(!state||ackScope!==scope)return;client.send({type:'action',action,...value===undefined?{}:{value}});}
 function release(){hold=false;$('#clutch').classList.remove('holding');if(fine){action('fine-end');fine=false;}if(current){current.finished=true;current.interrupted=true;current=null;selectedPointer=null;}}
 function maybeAck(){if(!state||contacts.size)return;if(ackScope!==scope){ackScope=scope;client.send({type:'ack',documentId:state.documentId,context:state.context});}update();}
 function receive(p:Packet){
+ if(p.type==='pairing-expired'){release();hub.stop();location.replace('/phone');return;}
+ if(p.type==='pairing-busy'){release();hub.stop();notice='The controller is already open. Close its other tab, then reconnect here.';const retry=document.createElement('button');retry.textContent='Reconnect here';retry.onclick=()=>location.reload();$('#message').after(retry);update();return;}
  if(p.type==='state'){
   const next=[p.documentId,p.epoch,p.context].join(':');if(next!==scope){release();for(const item of pending.values())item.recover=true;scope=next;ackScope='';orientations.reset();clearPad();}
   state=p;maybeAck();update();

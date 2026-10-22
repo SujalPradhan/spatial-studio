@@ -1,4 +1,4 @@
-import {getSession,webcamOnly} from './session';
+import {getSession,webcamOnly,hosted} from './session';
 import {bindDocument} from './documents';
 import './studio.css';
 import {workspaceNav,shapeFromPath,shapeRoutes} from './workspace-nav';
@@ -61,7 +61,7 @@ function updateConnection(){
 function receive(p:Packet){
  if(p.type==='workspace-paused'){releaseInputs();phoneActive=false;$('#phone-label').textContent='Phone follows the active workspace';}
  if(p.type==='workspace-available'){phone.release();lastFeedback='';updateConnection();}
- if(p.type==='connection'){phoneConnected=Boolean(p.connected);if(!phoneConnected){phoneActive=false;phone.release();tasks.event('phoneDisconnect');}updateConnection();}
+ if(p.type==='connection'){const previous=phoneConnected;phoneConnected=Boolean(p.connected);if(hosted&&phoneConnected&&!previous&&mode==='mouse')setMode('phone');if(!phoneConnected){phoneActive=false;phone.release();tasks.event('phoneDisconnect');}updateConnection();}
  if(p.type==='frame'){receiveAt=performance.now();phoneActive=Boolean(p.active&&p.visible);if(document.hidden){phone.release();return;}const wasHeld=phone.held,history=store.history.length;phone.frame(p,performance.now());if(wasHeld!==phone.held||history!==store.history.length)dirty=true;updateConnection();}
  if(p.type==='telemetry'){const readings=p.readings as SensorReading[];phoneRate=readings.find(r=>r.id==='relative')?.rate??0;rtt=typeof p.rtt==='number'?p.rtt:null;}
  if(p.type==='action'&&phone.enabled){
