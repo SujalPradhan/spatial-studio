@@ -1,0 +1,34 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {writeFile,readFile} from 'node:fs/promises';
+const base=process.env.STUDIO_URL||'http://localhost:4174';
+const browser=await chromium.launch({channel:'chrome',headless:true});
+const page=await browser.newPage({viewport:{width:1440,height:1050},acceptDownloads:true});const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+const state=()=>page.evaluate(()=>window.__mechanismStudio.state);
+const setValue=async(value)=>{await page.locator('#joint-number').fill(String(value));await page.locator('#apply-value').click();await page.waitForTimeout(40);};
+try{
+ await page.goto(`${base}/mechanism/box`);await page.waitForFunction(()=>!!window.__mechanismStudio);
+ await page.locator('[data-part="tray"]').click();await setValue(160);assert.ok((await state()).pose.lift<10.03);assert.match(await page.locator('#contact').innerText(),/lid/);
+ await page.locator('#undo').click();assert.equal((await state()).pose.lift,0);
+ await page.locator('[data-part="lid"]').click();await setValue(100);assert.equal((await state()).pose.angle,100);
+ await page.locator('#limit-value').fill('95');await page.locator('#apply-limit').click();assert.equal((await state()).pose.angle,100);assert.equal(await page.locator('#confirm-limit').isVisible(),true);
+ const before=await page.evaluate(()=>window.__mechanismStudio.history);await page.locator('#confirm-limit').click();assert.equal((await state()).pose.angle,95);assert.equal((await state()).config.limit,95);assert.equal(await page.evaluate(()=>window.__mechanismStudio.history),before+1);
+ await page.locator('#undo').click();assert.equal((await state()).pose.angle,100);assert.equal((await state()).config.limit,120);
+ await page.locator('[data-part="tray"]').click();await setValue(120);assert.equal((await state()).pose.lift,120);
+ await page.locator('[data-part="lid"]').click();await setValue(0);assert.ok((await state()).pose.angle>70);assert.match(await page.locator('#contact').innerText(),/tray/);
+ await page.locator('#reset').click();await page.locator('#fixture').selectOption('shelf');await setValue(120);assert.ok((await state()).pose.angle<31);assert.match(await page.locator('#contact').innerText(),/shelf/);
+ await page.locator('#fixture').selectOption('clear');await page.locator('#freeze').click();await page.waitForFunction(()=>document.querySelector('#joint-value').disabled);await page.locator('#freeze').click();await page.waitForFunction(()=>!document.querySelector('#joint-value').disabled);
+ await page.locator('#record').click();await page.waitForFunction(()=>window.__mechanismStudio.phase==='recording');await setValue(100);await page.waitForTimeout(100);await page.locator('[data-part="tray"]').click();await setValue(120);await page.waitForTimeout(100);await page.locator('#marker').click();await page.locator('#stop').click();
+ await page.waitForFunction(()=>window.__mechanismStudio.takes.length===1);const take=await page.evaluate(()=>window.__mechanismStudio.takes[0]);assert.equal(take.samples[0].t,0);assert.equal(take.samples.at(-1).angle,100);assert.equal(take.samples.at(-1).lift,120);assert.ok(take.steps.some(s=>s.kind==='marker'));assert.ok(take.steps.some(s=>s.text.includes('120.0 mm')));
+ await page.waitForFunction(()=>!document.querySelector('#timeline').disabled && Number(document.querySelector('#timeline').max)===Math.ceil(window.__mechanismStudio.takes[0].duration));await page.locator('#timeline').fill(String(Math.ceil(take.duration)));await page.waitForFunction(()=>window.__mechanismStudio.reviewTime===window.__mechanismStudio.takes[0].duration && document.querySelector('#pose-label').textContent.includes('Tray 120.0'));assert.match(await page.locator('#pose-label').innerText(),/Tray 120.0/);
+ await page.locator('#play').click();await page.waitForFunction(()=>window.__mechanismStudio.phase==='review');assert.ok(await page.evaluate(()=>window.__mechanismStudio.reviewTime)>0);
+ const dl=page.waitForEvent('download');await page.locator('#export').click();const download=await dl;const text=await readFile(await download.path(),'utf8');assert.equal(JSON.parse(text).fixture,'hinged-box-v1');
+ await page.locator('.take-row button').last().click();assert.equal(await page.evaluate(()=>window.__mechanismStudio.takes.length),0);
+ await page.locator('#import').setInputFiles({name:'take.json',mimeType:'application/json',buffer:Buffer.from(text)});await page.waitForFunction(()=>window.__mechanismStudio.takes.length===1);
+ await page.locator('#steps input').first().fill('Open the lid before lifting the tray.');await page.locator('#steps input').first().press('Tab');assert.equal(await page.evaluate(()=>window.__mechanismStudio.takes[0].steps[0].text),'Open the lid before lifting the tray.');
+ await page.locator('#stop').click();const beforeView=(await state()).pose;await page.locator('#zoom-in').click();assert.ok((await state()).view.zoom>1);assert.deepEqual((await state()).pose,beforeView);
+ await page.locator('#reset').click();await page.screenshot({path:'reports/mechanism-desktop.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(100);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'reports/mechanism-mobile.png',fullPage:true});
+ const {token}=await fetch(`${base}/api/session`).then(r=>r.json());await page.goto(`${base}/mechanism/box/phone?session=${token}`);await page.waitForSelector('#workspace-title');assert.equal(await page.locator('#workspace-title').innerText(),'Waiting for studio');assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'reports/mechanism-phone.png',fullPage:true});
+ assert.deepEqual(errors,[]);await writeFile('reports/mechanism-browser-check.json',JSON.stringify({passed:true,checks:['closed lid blocks tray','opening enables full tray travel','lower limit preview and atomic undo','lid closes against raised tray','swept shelf collision','freeze','numeric recording and captions','scrub and replay','JSON export/import','caption editing','pan/zoom geometry invariance','desktop/mobile/phone layouts'],errors,note:'Automated real-WebGL checks with mouse input, not physical gesture/device evidence.'},null,2));console.log('Mechanism browser checks passed.');
+}finally{await browser.close();}

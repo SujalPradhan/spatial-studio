@@ -1,0 +1,55 @@
+{
+  "voice": "macOS Samantha (synthetic)",
+  "duration": 76,
+  "sampleRate": 22050,
+  "cues": [
+    {
+      "start": 0.15,
+      "duration": 6.884444444444444,
+      "text": "Can you squeeze a three dimensional arrow onto a flat page? Meet our vector: two across, one up, and two out.",
+      "wordsPerMinute": 178
+    },
+    {
+      "start": 9.2,
+      "duration": 10.056326530612244,
+      "text": "Watch the blue pen: two across, then one up. That gives us two coordinates. The pink segment shows what the flat plane cannot keep: two units straight out of the page.",
+      "wordsPerMinute": 178
+    },
+    {
+      "start": 23.2,
+      "duration": 10.221133786848073,
+      "text": "Let's walk around it. The picture changes, but the answer doesn't. Same plane, same projection: two, one. Moving your viewpoint is different from changing the maths.",
+      "wordsPerMinute": 178
+    },
+    {
+      "start": 35.2,
+      "duration": 9.503582766439909,
+      "text": "Now tilt the page itself. The green arrow stays put, but its projection slides. We're choosing a different pair of directions to keep. Watch the pink gap grow.",
+      "wordsPerMinute": 178
+    },
+    {
+      "start": 49.2,
+      "duration": 4.365079365079365,
+      "text": "Can we make that gap disappear? Turn the plane toward the arrow. Keep going.",
+      "wordsPerMinute": 178
+    },
+    {
+      "start": 58.2,
+      "duration": 4.445079365079365,
+      "text": "There! The arrow lies in the plane. For this one vector, nothing is lost.",
+      "wordsPerMinute": 178
+    },
+    {
+      "start": 64.2,
+      "duration": 1.9083900226757369,
+      "text": "Let's return to the original plane.",
+      "wordsPerMinute": 178
+    },
+    {
+      "start": 68.2,
+      "duration": 7.314467120181406,
+      "text": "Keep two coordinates. Set the third to zero. That's orthogonal projection: keep the in plane part, drop the perpendicular part.",
+      "wordsPerMinute": 193
+    }
+  ]
+}

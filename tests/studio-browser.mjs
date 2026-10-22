@@ -1,0 +1,34 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {mkdir,readFile} from 'node:fs/promises';
+const base=process.env.STUDIO_URL||'http://localhost:4173';
+const browser=await chromium.launch({channel:'chrome',headless:true});
+const page=await browser.newPage({viewport:{width:1440,height:1100},acceptDownloads:true});
+const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+try{
+ await page.goto(base);await page.waitForFunction(()=>!!window.__sectionStudio);
+ assert.equal(await page.locator('#section-name').textContent(),'Circle');
+ await page.locator('[data-example="ellipse"]').click();await page.waitForFunction(()=>window.__sectionStudio.section.label==='Ellipse');
+ await page.locator('#pitch').fill('60');await page.waitForFunction(()=>window.__sectionStudio.section.clipped);
+ assert.match(await page.locator('#section-name').textContent(),/Base-clipped/);
+ await page.locator('[data-example="triangle"]').click();await page.waitForFunction(()=>window.__sectionStudio.section.label==='Triangle');
+ await page.locator('#freeze-scene').click();await page.waitForFunction(()=>document.querySelector('#pitch').disabled);assert.equal(await page.locator('#pitch').isDisabled(),true);
+ await page.locator('#freeze-scene').click();await page.locator('#save-cut').click();
+ await page.locator('#reset').click();await page.waitForFunction(()=>window.__sectionStudio.section.label==='Square');
+ await page.locator('[data-saved]').click();await page.waitForFunction(()=>window.__sectionStudio.state.frozen&&window.__sectionStudio.section.label==='Triangle');
+ await page.locator('#freeze-scene').click();await page.locator('#undo').click();await page.waitForFunction(()=>window.__sectionStudio.section.label==='Square');
+ await page.locator('[data-tool="rotate"]').click();
+ const box=await page.locator('#solid-view').boundingBox();await page.mouse.move(box.x+box.width*.45,box.y+box.height*.45);await page.mouse.down();await page.mouse.move(box.x+box.width*.65,box.y+box.height*.55,{steps:8});await page.mouse.up();
+ assert.notDeepEqual(await page.evaluate(()=>window.__sectionStudio.state.object),[0,0,0,1]);
+ await page.locator('#extra-tools > summary').click();await page.locator('[data-challenge="circle"]').click();
+ await page.locator('#pitch').fill('0');await page.locator('#roll').fill('0');await page.locator('#cut-depth').fill('0');
+ await page.waitForFunction(()=>window.__sectionStudio.tasks.some(t=>t.completed),{},{timeout:5000});
+ assert.match(await page.locator('#task-result').textContent(),/Matched in/);
+ const downloadPromise=page.waitForEvent('download');await page.locator('#export-session').click();const download=await downloadPromise;
+ const data=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(data.schema,2);assert.equal(data.tasks[0].completed,true);assert.equal(data.snapshots[0].label,'Triangle');
+ await page.locator('[data-example="ellipse"]').click();await page.locator('#explain').click();await page.waitForFunction(()=>window.__sectionStudio.section.label==='Ellipse');
+ await page.locator('#extra-tools > summary').click();await page.evaluate(()=>scrollTo(0,0));await mkdir('reports',{recursive:true});await page.screenshot({path:'reports/studio-desktop.png',fullPage:true});
+ const mobile=await browser.newPage({viewport:{width:393,height:852},isMobile:true,hasTouch:true});mobile.on('pageerror',e=>errors.push(String(e)));await mobile.goto(base);await mobile.waitForFunction(()=>!!window.__sectionStudio);
+ assert.equal(await mobile.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);await mobile.screenshot({path:'reports/studio-mobile.png',fullPage:true});
+ assert.deepEqual(errors,[]);console.log('Studio: real WebGL, finite-section labels, freeze, snapshot restore, undo, mouse rotation, guided target, export and mobile layout passed. No synthetic hardware readings.');
+}finally{await browser.close();}

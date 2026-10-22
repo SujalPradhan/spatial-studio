@@ -1,0 +1,6 @@
+.workspace-nav{display:flex;align-items:center;gap:6px;max-width:1480px;margin:0 auto;padding:14px 5.5%;border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap}
+.workspace-nav a,.workspace-nav button{flex:none;font:inherit;font-size:13px;line-height:1.4;text-decoration:none;padding:10px 17px;border:1px solid transparent;border-radius:6px;background:transparent;color:#61765f}
+.workspace-nav a:hover,.workspace-nav button:hover{background:#eaf0e3;color:#245e4b}
+.workspace-nav .active,.workspace-nav [aria-current="page"]{background:#e2ecdc;border-color:#c5d6bb;color:#245e4b;font-weight:600}
+.workspace-nav button:disabled{opacity:.55}
+@media(max-width:720px){.workspace-nav{padding:10px 14px;gap:3px}.workspace-nav a,.workspace-nav button{padding:9px 11px;font-size:12px}}

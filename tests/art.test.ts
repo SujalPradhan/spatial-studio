@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {initialArt,validateArt,inkPoint,OrientationBuffer,type InkFrame} from '../src/art/model';
+const f:InkFrame={origin:[1,2,3],q:[0,0,0,1],aspect:2,color:'#123456',width:.02,kind:'stable'};
+test('phone canvas mapping respects origin, aspect, rotation and frozen frame',()=>{assert.deepEqual(inkPoint(.5,.5,f),[2.6,2.8,3]);const p=inkPoint(.5,0,{...f,q:[0,Math.SQRT1_2,0,Math.SQRT1_2]});assert.ok(Math.abs(p[0]-1)<1e-8&&Math.abs(p[2]-1.4)<1e-8);const r=inkPoint(.5,0,{...f,q:[0,1,0,0]});assert.ok(Math.abs(r[0]+.6)<1e-8);});
+test('project import rejects missing view fields and invalid geometry',()=>{const a=initialArt();assert.deepEqual(validateArt(a),a);assert.throws(()=>validateArt({...a,view:{a:1,b:2,c:3,d:4,e:5}}));assert.throws(()=>validateArt({...a,q:[0,0,0,0]}));assert.throws(()=>validateArt({...a,origin:[Infinity,0,0]}));assert.throws(()=>validateArt({...a,view:{...a.view,zoom:0}}));});
+test('timestamped orientation interpolates quaternions, expires and resets source',()=>{const b=new OrientationBuffer();b.add(0,[0,0,0,1],'A');b.add(20,[0,0,1,0],'A');const q=b.at(10)!;assert.ok(Math.abs(Math.abs(q[2])-Math.SQRT1_2)<1e-8);assert.equal(b.at(121),null);b.add(30,[0,0,0,1],'B');assert.equal(b.samples.length,1);b.reset();assert.equal(b.at(30),null);});

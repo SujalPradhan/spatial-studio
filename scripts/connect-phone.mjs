@@ -1,0 +1,13 @@
+import { execFileSync } from 'node:child_process';
+const port = process.env.PORT || '4173';
+const session = await fetch(`http://127.0.0.1:${port}/api/session`).then(r => r.json());
+const devices = execFileSync('adb', ['devices'], { encoding: 'utf8' }).split('\n').filter(l => /\tdevice$/.test(l.trim()));
+if (devices.length !== 1) throw new Error('Connect exactly one authorized Android phone.');
+const mappings = execFileSync('adb', ['reverse', '--list'], { encoding: 'utf8' });
+const existing = mappings.split('\n').find(line => line.trim().split(/\s+/)[1] === `tcp:${port}`);
+if (existing && existing.trim().split(/\s+/)[2] !== `tcp:${port}`) throw new Error(`Port ${port} is already forwarded elsewhere. Choose a different PORT.`);
+execFileSync('adb', ['reverse', `tcp:${port}`, `tcp:${port}`], { stdio: 'inherit' });
+const phoneUrl=session.phoneUrl;
+execFileSync('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', phoneUrl, '-p', 'com.android.chrome'], { stdio: 'inherit' });
+console.log('\nTap Start sensors on the phone. USB carries the data to your Mac.');
+console.log(`To remove this session's forwarding later: adb reverse --remove tcp:${port}`);

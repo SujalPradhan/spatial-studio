@@ -1,0 +1,37 @@
+{
+  "name": "section-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "build": "tsc --noEmit && vite build --mode hosted",
+    "check": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:browser": "node tests/browser.mjs && node tests/studio-browser.mjs && node tests/navigation-browser.mjs && node tests/mechanism-browser.mjs && node tests/camera-start-browser.mjs && node tests/workspace-nav-browser.mjs && node tests/stand-browser.mjs && node tests/connected-browser.mjs && node tests/maths-browser.mjs && node tests/maths-demo-browser.mjs",
+    "test:maths": "node tests/maths-browser.mjs && node tests/maths-demo-browser.mjs",
+    "demo:record": "node scripts/record-projection-demo.mjs",
+    "demo:record:voice": "node scripts/record-narrated-projection.mjs",
+    "phone": "node scripts/connect-phone.mjs",
+    "start": "node server.mjs --production",
+    "test:controller": "node tests/controller-browser.mjs",
+    "test:mechanism-controller": "node tests/mechanism-controller.mjs",
+    "phone:mechanism": "node scripts/connect-phone.mjs --mechanism",
+    "phone:box": "node scripts/connect-phone.mjs --box",
+    "test:stand-controller": "node tests/stand-controller.mjs"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.1.1",
+    "three": "0.186.1",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/three": "^0.183.0",
+    "@types/ws": "^8.18.2",
+    "playwright": "^1.58.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vite": "8.3.4"
+  }
+}
