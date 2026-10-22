@@ -15,8 +15,8 @@ export class PhoneTracking {
  this.toggle.onclick=async()=>{if(this.camera.stream)this.stop();else if(this.allowed){await this.camera.start();try{if(this.camera.stream)this.wake=await navigator.wakeLock?.request('screen')??null;}catch{}}};
  document.addEventListener('visibilitychange',()=>{if(document.hidden)this.stop();});window.addEventListener('pagehide',()=>this.stop());
  }
- update(p:Packet|null){const allowed=p?.workspace==='tracking'&&p.enabled===true&&p.captureEnabled===true;
- const scope=allowed?[p?.epoch,p?.context,p?.documentId].join(':'):'';const session=String(p?.trackingSession??'');if(!allowed||session!==this.session)this.stop();clearTimeout(this.pauseTimer);this.scope=scope;this.session=session;this.allowed=allowed;this.panel.hidden=!allowed;if(allowed)this.camera.resume();}
+ update(p:Packet|null){const allowed=(p?.workspace==='tracking'||p?.workspace==='pottery'&&p.stage==='shape')&&p.enabled===true&&p.captureEnabled===true;
+ const scope=allowed?[p?.epoch,p?.context,p?.documentId].join(':'):'';const session=String(p?.trackingSession??'');if(!allowed||session!==this.session)this.stop();clearTimeout(this.pauseTimer);this.scope=scope;this.session=session;this.allowed=allowed;this.panel.hidden=!allowed;const note=this.panel.querySelector('p:last-child')!;note.textContent=p?.workspace==='pottery'?'Hand tracking runs here. Show both open hands, then close both fists to shape the vase.':'Hand tracking runs on this phone. Only landmarks are streamed. Capture board pair on the laptop also sends one photo for calibration.';if(allowed)this.camera.resume();}
  receive(p:Packet){if(p.type==='tracking-capture'&&this.allowed&&this.camera.stream){try{this.client().send({type:'tracking-photo',requestId:p.requestId,...this.camera.photo()});}catch(e){this.metrics.textContent=String(e);}}}
  pause(){this.allowed=false;this.camera.pause();clearTimeout(this.pauseTimer);this.pauseTimer=setTimeout(()=>this.stop(),5*60000);}
  stop(){void this.wake?.release();this.wake=null;clearTimeout(this.pauseTimer);const running=this.camera.stream||this.camera.starting;this.camera.stop();if(running)this.client().send({type:'tracking-stop'});}

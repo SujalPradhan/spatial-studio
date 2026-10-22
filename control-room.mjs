@@ -1,5 +1,5 @@
 import {validTrackingFrame,validTrackingPhoto,validCaptureId} from './tracking-protocol.mjs';
-const workspaces=new Set(['shapes','stand','box','art','lab','maths','tracking']);
+const workspaces=new Set(['shapes','stand','box','art','lab','maths','tracking','pottery']);
 const finiteQ=q=>Array.isArray(q)&&q.length===4&&q.every(Number.isFinite)&&Math.abs(Math.hypot(...q)-1)<.1;
 const between=(n,a,b)=>Number.isFinite(n)&&n>=a&&n<=b;
 // Apply at relay ingress AND desktop receipt. Ink has reliable checkpoints and
@@ -13,6 +13,7 @@ export function freshInput(packet,now){
 function descriptor(workspace,state){
  if(!state||typeof state.enabled!=='boolean'||typeof state.frozen!=='boolean'||!Number.isSafeInteger(state.context)||state.context<0)return null;
  if(workspace==='tracking'&&(typeof state.captureEnabled!=='boolean'||!validCaptureId(state.trackingSession)))return null;
+ if(workspace==='pottery'&&(!['shape','decorate','inspect'].includes(state.stage)||!validCaptureId(state.modelId)||!validCaptureId(state.trackingSession)||typeof state.captureEnabled!=='boolean'||state.captureEnabled&&state.stage!=='shape'||!Number.isInteger(state.band)||!between(state.band,0,32)||!between(state.height,80,300)||!between(state.radius,12,90)||!/^#[a-f0-9]{6}$/i.test(state.color)||!between(state.width,.005,.1)||!state.frame||!finiteQ(state.frame.q)||state.frame.aspect!==1))return null;
  const s={...state};for(const key of ['type','workspace','documentId','epoch','v','seq'])delete s[key];
  if(workspace==='shapes'&&(!['cone','cylinder','cube'].includes(s.solid)||!between(s.depth,-1.8,1.8)))return null;
  if(workspace==='stand'&&(s.fixture!=='folding-stand-v1'||s.selected!=='backrest'||!between(s.angle,0,80)||s.limit!==80))return null;
@@ -52,13 +53,13 @@ export function createControlRoom({initialEpoch=0,requireFresh=false}={}){
    if(!acked||p.context!==target.state.context)return;
    if(requireFresh&&['frame','action'].includes(p.type)){p=freshInput(p,Date.now());if(!p)return;}
    if(p.type==='tracking-frame'){
-    if(target.workspace!=='tracking'||!target.state.captureEnabled||!validTrackingFrame(p)||!Number.isFinite(p.at)||Date.now()-p.at>1500||p.at-Date.now()>100)return;
+    if(!['tracking','pottery'].includes(target.workspace)||!target.state.captureEnabled||!validTrackingFrame(p)||!Number.isFinite(p.at)||Date.now()-p.at>1500||p.at-Date.now()>100)return;
     send(owner,{type:'tracking-frame',captureId:p.captureId,width:p.width,height:p.height,frameId:p.frameId,hands:p.hands,frameAt:p.frameAt,dispatchAt:p.dispatchAt,videoTimeMs:p.videoTimeMs,timestampSource:p.timestampSource,clockRttMs:p.clockRttMs,inferenceMs:p.inferenceMs,processedHz:p.processedHz,at:p.at,context:p.context});return;
    }
    if(p.type==='tracking-photo'){
     if(target.workspace==='tracking'&&target.state.captureEnabled&&pendingPhoto?.id===p.requestId&&pendingPhoto.expires>Date.now()&&validTrackingPhoto(p)){pendingPhoto=null;send(owner,{type:'tracking-photo',requestId:p.requestId,jpeg:p.jpeg,captureId:p.captureId,width:p.width,height:p.height,context:p.context});}return;
    }
-   if(p.type==='tracking-stop'&&target.workspace==='tracking'){pendingPhoto=null;send(owner,{type:'tracking-stop',context:p.context});return;}
+   if(p.type==='tracking-stop'&&['tracking','pottery'].includes(target.workspace)){pendingPhoto=null;send(owner,{type:'tracking-stop',context:p.context});return;}
    if(p.type==='frame'){
     if(typeof p.hold!=='boolean'||typeof p.active!=='boolean'||typeof p.visible!=='boolean'||!Number.isFinite(p.screenAngle)||typeof p.source!=='string'||p.source.length>120||p.hold&&!finiteQ(p.q))return;
     send(owner,{...p,epoch,seq:undefined,received:Date.now()});return;
@@ -68,8 +69,9 @@ export function createControlRoom({initialEpoch=0,requireFresh=false}={}){
     send(owner,{type:'action',action:p.action,value:p.value,at:p.at,epoch,context:p.context});return;
    }
    if(p.type==='ink'){
-    if(!['art','maths'].includes(target.workspace)||p.documentId!==target.documentId||typeof p.strokeId!=='string'||p.strokeId.length>100||!Number.isSafeInteger(p.start)||p.start<0||!Array.isArray(p.points)||p.points.length>256||p.points.some(x=>!Array.isArray(x)||x.length!==7||!x.every(Number.isFinite)||Math.abs(x[0])>1||Math.abs(x[1])>1||Math.abs(Math.hypot(...x.slice(3))-1)>.1)||!Number.isFinite(p.aspect)||p.aspect<.2||p.aspect>5)return;
-    send(owner,{type:'ink',documentId:p.documentId,strokeId:p.strokeId,start:p.start,points:p.points,aspect:p.aspect,frame:p.frame,mode:p.mode==='position'?'position':'draw',finished:!!p.finished,interrupted:!!p.interrupted,epoch,context:p.context});return;
+    if(!['art','maths','pottery'].includes(target.workspace)||p.documentId!==target.documentId||typeof p.strokeId!=='string'||p.strokeId.length>100||!Number.isSafeInteger(p.start)||p.start<0||!Array.isArray(p.points)||p.points.length>256||p.points.some(x=>!Array.isArray(x)||x.length!==7||!x.every(Number.isFinite)||Math.abs(x[0])>1||Math.abs(x[1])>1||Math.abs(Math.hypot(...x.slice(3))-1)>.1)||!Number.isFinite(p.aspect)||p.aspect<.2||p.aspect>5)return;
+    if(target.workspace==='pottery'&&(target.state.stage!=='decorate'||p.modelId!==target.state.modelId)){send(phone,{type:'ink-rejected',documentId:p.documentId,strokeId:p.strokeId,index:-1,reason:'The vase changed. Begin a new stroke.'});return;}
+    send(owner,{type:'ink',modelId:p.modelId,documentId:p.documentId,strokeId:p.strokeId,start:p.start,points:p.points,aspect:p.aspect,frame:p.frame,mode:p.mode==='position'?'position':'draw',finished:!!p.finished,interrupted:!!p.interrupted,epoch,context:p.context});return;
    }
    if(['telemetry','test','capability'].includes(p.type))send(owner,{...p,epoch,received:Date.now()});
   });

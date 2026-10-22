@@ -3,7 +3,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 const base=process.env.STUDIO_URL||'http://localhost:4174';await mkdir('reports',{recursive:true});
 const desktop=await chromium.launch({channel:'chrome',headless:true}),mobile=await chromium.launch({channel:'chrome',headless:true});
 const desktopContext=await desktop.newContext({viewport:{width:1440,height:1050},acceptDownloads:true});
-const page=await desktopContext.newPage(),phone=await mobile.newPage({viewport:{width:393,height:852},hasTouch:true,isMobile:true});const errors=[];page.on('pageerror',e=>errors.push(String(e)));phone.on('pageerror',e=>errors.push(String(e)));
+const page=await desktopContext.newPage(),phone=await mobile.newPage({viewport:{width:393,height:852},hasTouch:true,isMobile:true,permissions:['accelerometer','gyroscope','magnetometer']});const errors=[];page.on('pageerror',e=>errors.push(String(e)));phone.on('pageerror',e=>errors.push(String(e)));
 await phone.addInitScript(()=>{window.testDegrees=0;class Sensor extends EventTarget {quaternion=[0,0,0,1];timestamp=0;start(){this.timer=setInterval(()=>{const a=window.testDegrees*Math.PI/360;this.quaternion=[Math.sin(a),0,0,Math.cos(a)];this.timestamp=performance.now();this.dispatchEvent(new Event('reading'));},20);}stop(){clearInterval(this.timer);}}window.RelativeOrientationSensor=Sensor;});
 const title=async t=>phone.waitForFunction(t=>document.querySelector('#workspace-title')?.textContent===t,t);
 const phoneMove=async()=>{const r=await phone.locator('#drawing-pad').boundingBox();await phone.mouse.move(r.x+r.width*.3,r.y+r.height*.45);await phone.mouse.down();for(let i=1;i<=15;i++)await phone.mouse.move(r.x+r.width*(.3+i*.025),r.y+r.height*(.45+Math.sin(i/3)*.1));await phone.mouse.up();};

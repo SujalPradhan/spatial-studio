@@ -63,11 +63,16 @@ try{
  await page.waitForFunction(()=>window.__artStudio.state.strokes.some(s=>s.finished&&s.points.length>1));
  checks.push('Mouse spatial ink draws and finishes without crashing');
 
+ // The headless host may have no advancing audio output clock. Exercise the
+ // explicit no-audio fallback here; voice/audio is covered by the demo harness.
+ await page.route('**/audio/projection-narration.wav',route=>route.abort());
  await page.goto(base+'/maths?demo=projection');await page.locator('.hosted-preview').waitFor();
- await page.waitForFunction(()=>window.__mathsStudio?.demo.active);
+ await page.waitForFunction(()=>window.__mathsStudio?.demo.active&&window.__mathsStudio.demo.audioUnavailable);
+ // Earlier tab handoff leaves headless focus implementation-dependent.
+ await page.bringToFront();await page.evaluate(()=>{document.hasFocus=()=>true;window.dispatchEvent(new Event('focus'));});
  await page.locator('#demo-play').click();await page.waitForFunction(()=>window.__mathsStudio.demo.time>.5);
  await page.locator('#demo-play').click();assert.equal(await page.evaluate(()=>window.__mathsStudio.demo.playing),false);
- checks.push('Maths narrated demo plays and pauses without a relay');
+ checks.push('Maths captioned demo plays and pauses with unavailable audio, without a relay');
  await page.goto(base+'/mechanism/box');await page.locator('.hosted-preview').waitFor();
  assert.equal(await page.locator('#camera-toggle').isEnabled(),true);
  await page.goto(base+'/phone');
