@@ -1,3 +1,5 @@
+import QRCode from 'qrcode';
+import {phonePairingUrl} from './pairing-link';
 import './hosted-preview.css';
 import {webcamOnly,pairing,pairingStatus,createPairing,endPairing} from './session';
 import {currentDocument} from './documents';
@@ -28,15 +30,20 @@ bar.querySelector<HTMLElement>('#save-timings')!.onclick=()=>{
 
 if(!webcamOnly){
  const dialog=document.createElement('dialog');dialog.id='hosted-pair-dialog';
- dialog.innerHTML='<button id="pair-close" aria-label="Close">×</button><h2>Connect your phone</h2><p>Open <a id="controller-address" href="/phone" target="_blank" rel="noopener"></a> on your phone and enter this code.</p><output id="pairing-code">—</output><p id="pairing-message" role="status"></p><div><button id="new-pair-code">Create code</button><button id="end-pairing" hidden>Disconnect phone</button></div>';
+ dialog.innerHTML='<button id="pair-close" aria-label="Close">×</button><h2>Scan to connect</h2><p>Scan this QR code with your phone’s camera. It opens the controller and connects automatically.</p><canvas id="pairing-qr" width="260" height="260" aria-label="Scan this QR code to connect your phone" hidden></canvas><details id="pairing-fallback"><summary>Can’t scan?</summary><p>Open <a id="controller-address" href="/phone" target="_blank" rel="noopener"></a> and enter:</p><output id="pairing-code">—</output></details><p id="pairing-message" role="status"></p><div><button id="new-pair-code">Create code</button><button id="end-pairing" hidden>Disconnect phone</button></div>';
  document.body.append(dialog);dialog.querySelector('#controller-address')!.textContent=location.host+'/phone';
- let connected=pairingStatus.connected,busy=false,problem='';
+ let connected=pairingStatus.connected,busy=false,problem='',qrKey='';
+ const qr=dialog.querySelector<HTMLCanvasElement>('#pairing-qr')!;
  const button=bar.querySelector<HTMLButtonElement>('#pair-phone')!,fresh=dialog.querySelector<HTMLButtonElement>('#new-pair-code')!,end=dialog.querySelector<HTMLButtonElement>('#end-pairing')!,close=dialog.querySelector<HTMLButtonElement>('#pair-close')!;
  const render=()=>{
   button.textContent=connected?'Phone connected':'Connect phone';
   const value=pairing?.code;dialog.querySelector('output')!.textContent=value?value.slice(0,4)+'-'+value.slice(4):'—';
-  dialog.querySelector('#pairing-message')!.textContent=problem||(busy?'Preparing connection…':connected?'Connected. The phone follows your active workspace.':pairing?.paired?'This code has been used. Reopen the controller on the paired phone, or create a new code.':pairing&&Date.now()<pairing.joinExpiresAt?'Enter this code within 10 minutes.':pairing?'Code expired. Create a new code.':'Create a code to pair one phone.');
-  fresh.textContent=pairing?'New code':'Create code';fresh.disabled=end.disabled=close.disabled=busy;end.hidden=!pairing;
+  const ready=!!value&&!pairing?.paired&&!connected&&!busy&&Date.now()<pairing!.joinExpiresAt;
+  qr.hidden=!ready;
+  if(ready&&qrKey!==value){qrKey=value!;const link=phonePairingUrl(location.origin,value!);void QRCode.toCanvas(qr,link,{width:260,margin:4,errorCorrectionLevel:'M',color:{dark:'#142219',light:'#ffffff'}}).catch(()=>{qrKey='';qr.hidden=true;problem='Could not draw the QR code. Use the code under “Can’t scan?” or try a new connection.';dialog.querySelector('#pairing-message')!.textContent=problem;});}
+
+  dialog.querySelector('#pairing-message')!.textContent=problem||(busy?'Preparing connection…':connected?'Connected. The phone follows your active workspace.':pairing?.paired?'This code has been used. Reopen the controller on the paired phone, or create a new code.':pairing&&Date.now()<pairing.joinExpiresAt?'Scan within 10 minutes.':pairing?'QR code expired. Create a new connection.':'Create a connection to pair one phone.');
+  fresh.textContent=pairing?'New QR code':'Create QR code';fresh.disabled=end.disabled=close.disabled=busy;end.hidden=!pairing;
  };
  const reload=async()=>{await currentDocument?.flush();sessionStorage.setItem('show-pairing','1');location.reload();};
  const create=async()=>{busy=true;problem='';render();try{if(pairing)await endPairing();await createPairing();await reload();}catch(e){problem=e instanceof Error?e.message:String(e);busy=false;render();}};

@@ -1,8 +1,8 @@
 # Spatial Studio
 
-Hosted browser-local CPU hand tracking with code-based Android phone control.
+Hosted browser-local CPU hand tracking with QR-paired Android phone control.
 
-On the laptop choose **Connect phone**. Open `/phone` on the handset, enter the eight-character code, then tap **Start sensors**. The phone follows the selected desktop workspace. Codes are single-use and expire after ten minutes; paired sessions last up to 24 hours.
+On the laptop choose **Connect phone** and scan the displayed QR code with the phone camera. The controller opens and connects automatically; tap **Start sensors** to enable motion. An eight-character code remains available under **Can’t scan?** The phone follows the selected desktop workspace. Codes are single-use and expire after ten minutes; paired sessions last up to 24 hours.
 
 Webcam frames stay in the laptop browser. A separate Cloudflare Worker with one Durable Object per pair relays phone motion/touch over WebSockets. The timing panel reports model startup, inference and worker round trip, not physical motion-to-display latency.
 
