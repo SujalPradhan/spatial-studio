@@ -1,21 +1,27 @@
 // Classic worker: MediaPipe's WASM loader uses importScripts.
 importScripts('/vendor/mediapipe/vision_bundle.js');
-let detector;
+let detector,files,delegate='CPU';
+async function createDetector(useGPU){
+  const options={baseOptions:{modelAssetPath:'/models/hand_landmarker.task',delegate:useGPU?'GPU':'CPU'},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.6,minHandPresenceConfidence:.6,minTrackingConfidence:.6};
+  if(useGPU)options.canvas=new OffscreenCanvas(1,1);
+  const next=await Vision.HandLandmarker.createFromOptions(files,options);
+  delegate=useGPU?'GPU':'CPU';return next;
+}
 self.onmessage = async ({data}) => {
   try {
     if (data.type === 'init') {
-      const files = await Vision.FilesetResolver.forVisionTasks('/vendor/mediapipe/wasm');
-      detector = await Vision.HandLandmarker.createFromOptions(files, {
-        baseOptions: {modelAssetPath:'/models/hand_landmarker.task', delegate:'CPU'},
-        runningMode:'VIDEO', numHands:2,
-        minHandDetectionConfidence:.6, minHandPresenceConfidence:.6, minTrackingConfidence:.6,
-      });
-      self.postMessage({type:'ready'});
+      files = await Vision.FilesetResolver.forVisionTasks('/vendor/mediapipe/wasm');
+      if(data.preferGPU&&typeof OffscreenCanvas!=='undefined'){
+        try{detector=await createDetector(true);}catch{detector=await createDetector(false);}
+      }else detector=await createDetector(false);
+      self.postMessage({type:'ready',delegate});
     } else if (data.type === 'frame') {
       try {
         const start = performance.now();
-        const result = detector.detectForVideo(data.bitmap, data.timestamp);
-        self.postMessage({type:'result',landmarks:result.landmarks,worldLandmarks:result.worldLandmarks,inferenceMs:performance.now()-start,timestamp:data.timestamp});
+        let result;
+        try{result=detector.detectForVideo(data.bitmap,data.timestamp);}
+        catch(error){if(delegate!=='GPU')throw error;try{detector.close();}catch{}detector=await createDetector(false);result=detector.detectForVideo(data.bitmap,data.timestamp);}
+        self.postMessage({type:'result',landmarks:result.landmarks,worldLandmarks:result.worldLandmarks,inferenceMs:performance.now()-start,timestamp:data.timestamp,delegate});
       } finally { data.bitmap.close(); }
     }
   } catch (error) { self.postMessage({type:'error',message:String(error)}); }

@@ -47,6 +47,8 @@ export class ControlClient {
  release(){this.active=false;this.cancelled?.abort();this.stopLease?.();this.receive({type:'local-release'});}
  private network(p:Packet){
   const ws=this.socket;if(ws?.readyState!==WebSocket.OPEN)return false;
+  // Camera frames are replaceable: drop them before they build a delayed queue.
+  if(p.type==='tracking-frame'&&ws.bufferedAmount>4*1024)return false;
   if(ws.bufferedAmount>16*1024){ws.close(1013,'Connection catching up');return false;}
   if(hosted&&p.type==='frame'&&p.hold&&this.clockOffset===null)return false;
   ws.send(JSON.stringify({v:2,seq:this.seq++,epoch:this.epoch,context:this.context,...p,...this.clockOffset===null?{}:{at:performance.now()+this.clockOffset}}));return true;

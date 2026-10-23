@@ -3,6 +3,7 @@ import type {CameraIdentity} from './model';
 export class TrackingCamera {
  stream:MediaStream|null=null;probe:HandProbe|null=null;identity:CameraIdentity|null=null;starting=false;private generation=0;private sequence=0;
  facing:'user'|'environment'='user';
+ interactive=false;
  metrics:Record<string,unknown>={};
  constructor(readonly video:HTMLVideoElement,readonly canvas:HTMLCanvasElement,private mobile:boolean,private frame:(hands:Landmark[][],meta:HandFrameMeta)=>void,private status:(message:string)=>void){}
  async start(){
@@ -18,10 +19,10 @@ export class TrackingCamera {
  }catch(e){if(generation===this.generation)this.stop(e instanceof Error?e.message:String(e));}finally{if(generation===this.generation)this.starting=false;}
  }
  private launch(){if(!this.stream||this.probe)return;
- this.probe=new HandProbe(this.video,this.canvas,(data,message)=>{this.metrics={...this.metrics,...data};if(data.status==='error'){this.stop(message);return;}this.status(message);},(hands,_t,_world,meta)=>{if(!this.identity||!meta)return;if(meta.width!==this.identity.width||meta.height!==this.identity.height){this.stop('Camera dimensions changed. Start again and recalibrate.');return;}this.frame(hands,{...meta,frameId:++this.sequence});});this.probe.start();
+ this.probe=new HandProbe(this.video,this.canvas,(data,message)=>{this.metrics={...this.metrics,...data};if(data.status==='error'){this.stop(message);return;}this.status(message);},(hands,_t,_world,meta)=>{if(!this.identity||!meta)return;if(meta.width!==this.identity.width||meta.height!==this.identity.height){this.stop('Camera dimensions changed. Start again and recalibrate.');return;}this.frame(hands,{...meta,frameId:++this.sequence});},this.mobile&&this.interactive?{targetHz:24,preferGPU:true,reportIntervalMs:250}:{});this.probe.start();
  }
- pause(){if(this.starting&&!this.identity){this.stop('Camera startup paused. Start again.');return;}this.generation++;this.probe?.stop();this.probe=null;this.video.pause();this.status('Tracking paused. Camera session retained for calibration.');}
- resume(){if(!this.stream||this.probe)return;const generation=this.generation;void this.video.play().then(()=>{if(generation===this.generation)this.launch();}).catch(e=>{if(generation===this.generation)this.stop(String(e));});}
+ pause(){if(this.starting&&!this.identity){this.stop('Camera startup paused. Start again.');return;}this.generation++;this.probe?.pause();this.video.pause();this.status('Tracking paused. Return to the studio to continue.');}
+ resume(){if(!this.stream||this.probe&&!this.probe.paused&&!this.video.paused)return;const generation=this.generation;void this.video.play().then(()=>{if(generation===this.generation){if(this.probe)this.probe.resume();else this.launch();}}).catch(e=>{if(generation===this.generation)this.stop(String(e));});}
 
  stop(message='Camera stopped.'){
  this.generation++;this.starting=false;this.probe?.stop();this.probe=null;this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;this.video.srcObject=null;this.identity=null;this.metrics={status:'off'};this.status(message);

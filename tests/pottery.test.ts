@@ -2,9 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Vector3} from 'three';
 import {newVase,reshape,vaseGeometry,VaseStore,parseProject,validateVase} from '../src/pottery/model';
-import {TwoHandGate} from '../src/pottery/gesture';
+import {TwoHandGate,PhoneGapFilter} from '../src/pottery/gesture';
 import {metricHand} from './hand-fixtures';
 const pair=(closed=0,gap=.4,y=.65)=>[.5-gap/2,.5+gap/2].map(cx=>metricHand(closed).map(p=>({x:cx+p.x*.1,y:y-p.y*.1,z:p.z*.1})));
+test('phone spacing filter reduces stationary jitter, follows deliberate motion, and resets between grabs',()=>{
+ const filter=new PhoneGapFilter();filter.update(.4,0);const jitter=[];
+ for(let i=1;i<=30;i++)jitter.push(filter.update(.4+(i%2?.003:-.003),i*42));
+ assert.ok(Math.max(...jitter)-Math.min(...jitter)<.006);
+ assert.ok(filter.update(.55,31*42)>.53);
+ filter.reset();assert.equal(filter.update(.25,32*42),.25);
+ assert.equal(filter.update(.6,44*42),.6);
+});
+test('portrait camera gestures and mobile height hysteresis preserve grab and immediate release',()=>{
+ const aspect=.75,portrait=(closed=0,gap=.4,y=.65)=>pair(closed,gap,y).map(h=>h.map(p=>({...p,y:y+(p.y-y)*aspect})));
+ const g=new TwoHandGate(.75);const selected=g.update(portrait(),0,aspect);assert.equal(selected.phase,'hover');
+ g.update(portrait(4),50,aspect);assert.equal(g.update(portrait(4),180,aspect).phase,'start');
+ assert.equal(g.update(portrait(4,.5),220,aspect).phase,'move');
+ assert.equal(g.update(portrait(0,.5),260,aspect).phase,'end');
+ assert.equal(g.update(portrait(4,.5),290,aspect).phase,'idle');
+});
 test('two hands choose height open, grab with fists, keep band fixed and release on either hand/loss/crossing',()=>{
  const g=new TwoHandGate();const hover=g.update(pair(),0);assert.equal(hover.phase,'hover');assert.notEqual(g.update(pair(4),10).phase,'start');assert.equal(g.update(pair(4),140).phase,'start');const move=g.update(pair(4,.5,.55),180);assert.equal(move.phase,'move');assert.equal(move.band,hover.band);assert.ok(move.gap>.49);
  const oneOpen=pair(4,.5,.55);oneOpen[0]=pair(0,.5,.55)[0];assert.equal(g.update(oneOpen,200).phase,'end');assert.equal(g.update(pair(4),220).phase,'idle');g.update(pair(),240);g.update(pair(4),260);g.update(pair(4),400);assert.equal(g.update([pair()[0]],410).phase,'end');
